@@ -13,15 +13,16 @@
 ##### 1. A working repository (default "~/Desktop/Wannigan/")                                                                                   #####
 ##### 2. Folder within working repository containing all .fastq files (default "~/Desktop/Wannigan/raw/16S/")                                   #####
 ##### 3. .csv file containing sample metadata listed with unique sampleIDs in first column (default "~/Desktop/Wannigan/raw/table_map.csv")     #####
-##### 4. .fa file containing reference taxonomy database (default "~/Desktop/Wannigan/raw/database_bacteroides.fa")                                     #####                                   
+##### 4. .fa file containing reference taxonomy database (default "~/Desktop/Wannigan/raw/dbBacteroides.fa")                                     #####                                   
 ###########################################################################################################################################################
 
 #####################################################################
 ########## Processing Set −up #######################################
 #####################################################################
 # R version 4.5.2 (2025-10-31) -- "[Not] Part in a Rumble"
-# All code written by Emily Ann McClure. No AI was used at any stage in writing or editing this code. 
-# github.com/mcclure51e/
+##### All code written by Emily Ann McClure github.com/mcclur51e   #####
+##### No AI was used at any stage in writing or editing this code. #####
+
 ########## Call libraries for use ##########
 # Packages from CRAN
 library("ggplot2") # version 4.0.0
@@ -36,7 +37,7 @@ library("dada2") # version 1.36.0
 ################################################################################
 ########## If running by line (i.e. RStudio) use the following block ###########
 ################################################################################
-path <- "~/Desktop/Wannigan/" # change this to directory where you will be working
+path <- "~/Desktop/Wannigans/Wannigan_Casey/" # change this to directory where you will be working
 setwd(path) # set working directory
 dir.create("outputPrelim") # create directory for output files to go
 dir.create("plots") # create directory for plots to go
@@ -49,7 +50,7 @@ fnRs <- sort(list.files(paste0(path,"raw/16S/"), pattern="R2_001", full.names = 
 
 if(length(fnFs) != length(fnRs)) stop("At least one sample is unpaired. Please check forward and reverse reads are present for all samples")
 
-sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+sample.names <- sapply(strsplit(basename(fnFs), "_S"), `[`, 1)
 #sample.namesR <- sapply(strsplit(basename(fnRs), "_"), `[`, 1) # to check if reverse reads have same sample names as forward
 #write.csv(sample.names,"outputPrelim/sampleNames.csv") # print list of sample names to check if they match map file
 table_map <- data.frame(read.csv("raw/table_map.csv", header = TRUE, row.names = 1, check.names=FALSE)) # reads csv file into data.frame with row names in column 1
@@ -93,7 +94,7 @@ save(mergers,file=("outputPrelim/output_mergers.RData")) # Save in a .RData file
 
 seqtab <- makeSequenceTable(mergers)
 # table(nchar(getSequences(seqtab))) # use to check distribution of sequence lengths
-seqtab.all <- seqtab[,nchar(colnames(seqtab)) %in% 425:525] # these cut-off values have been chosen specific to this study. Modify as appropriate when sequencing other regions.
+seqtab.all <- seqtab[,nchar(colnames(seqtab)) %in% 410:450] # these cut-off values have been chosen specific to this study. Modify as appropriate when sequencing other regions.
 #seqtab.all <- seqtab[,nchar(colnames(seqtab)) %in% val.minLength:val.maxLength]
 seqtab.noBim <- removeBimeraDenovo(seqtab.all, method="consensus", multithread=TRUE)
 
@@ -130,8 +131,9 @@ MAP = sample_data(table_map) # assigns metadata table
 physeq = phyloseq(OTU, TAX, MAP) # prepare phyloseq object
 
 ### add data to taxonomy table ###
-table_spp <- data.frame(read.csv("~/Desktop/Wannigan_METRC/raw/table_SppDescription.csv", header = TRUE, check.names=FALSE)) # reads csv file into data.frame with row names in column 1
-bind.asv <- data.frame(cbind(tax_table(physeq), paste0("ASV", seq(ntaxa(physeq))))) # add column listing ASVs numerically
+#table_spp <- data.frame(read.csv("~/Desktop/Wannigan_METRC/raw/table_SppDescription.csv", header = TRUE, check.names=FALSE)) # reads csv file into data.frame with row names in column 1
+bind.spp <- data.frame(cbind(tax_table(physeq), paste(tax_table(physeq)[,c("Genus")],tax_table(physeq)[,c("Species")]))) # add column listing ASVs numerically
+bind.asv <- cbind(bind.spp, paste0("ASV", seq(ntaxa(physeq)))) # add column listing ASVs numerically
 bind.seq <- cbind(bind.asv, row.names(tax_table(physeq))) # add column listing ASV sequences
 bind.o <- cbind(bind.seq, seq(ntaxa(physeq))) # adding a column for sorting table later
 bind.length <- cbind(bind.o, nchar(bind.o[,10])) # add a column listing length of sequences
@@ -139,7 +141,7 @@ bind.count <- cbind(bind.length, taxa_sums(physeq)) # add a column listing total
 bind.prev <- cbind(bind.count, rowSums(t(otu_table(physeq)) != 0)) # add a column listing total number of samples in which ASV appears
 bind.prevSample <- cbind(bind.prev, rowSums(t(otu_table(subset_samples(physeq, Control%in%c("sample","positive")))) != 0)) # add a column listing total number of samples (excluding controls) in which ASV appears
 bind.CP <- cbind(bind.prevSample, as.numeric(bind.prevSample[,13]) / as.numeric(bind.prevSample[,14])) # calculate ~average reads/sample
-colnames(bind.CP) <- c("Kingdom","Phylum","Class","Order","Family","Genus","Species","Strain","ASV",
+colnames(bind.CP) <- c("Kingdom","Phylum","Class","Order","Family","Genus","Species","Strain","Spp","ASV",
                        "Sequence","Sort","Length","Count","Prevalence","PrevSamples","CP") # rename columns
 rownames(bind.CP) <- bind.CP$ASV # reassign ASV names
 TAX2 = tax_table(as.matrix(bind.CP)) # define new taxonomy table
@@ -152,6 +154,8 @@ physeqR1 <- phyloseq(otu_table(physeq), TAX2, MAP) # prepare phyloseq object mod
 df.map <- as.data.frame(sample_data(physeqR1))
 df.map$sampleID <- rownames(df.map) # sample names
 df.map$LibrarySize <- sample_sums(physeqR1) # total reads count per sample
+df.map <- cbind(df.map, estimate_richness(physeqR1, split = TRUE, measures = NULL))
+df.map$mutant <- with(df.map, ifelse(genotype%in%c("WT1","WT2"), "WT", "dtssBC")) 
 physeqR = phyloseq(tax_table(physeqR1),otu_table(physeqR1),sample_data(df.map)) # return map to phyloseq object
 
 #############################################################
@@ -166,8 +170,8 @@ phyR.taxTrim <- subset_taxa(physeqR, taxa_sums(physeqR) > quantile(as.matrix(df.
 ### identify contaminants using decontam
 ps <- physeqR
 sample_data(ps)$is.neg <- sample_data(ps)$Control == "negative" # define negative samples
-sample_data(ps)$SampleConcentration <- as.numeric(sample_data(ps)$SampleConcentration) + 0.001 # convert values to numeric and >0
-contamdf.either <- isContaminant(ps, method="either", conc="SampleConcentration", neg="is.neg", threshold=0.5) # determine contaminants
+sample_data(ps)$QubitConc <- as.numeric(sample_data(ps)$QubitConc) + 0.001 # convert values to numeric and >0
+contamdf.either <- isContaminant(ps, method="either", conc="QubitConc", neg="is.neg", threshold=0.5) # determine contaminants
 #table(contamdf.either$contaminant)
 ps.pa <- transform_sample_counts(ps, function(abund) 1*(abund>0))
 ps.pa.neg <- prune_samples(sample_data(ps.pa)$Control%in%c("negative","negEtract","negSeq"), ps.pa)
@@ -195,4 +199,5 @@ save(ps.noContam, file="outputPrelim/psNoContam.csv") # Save total data as .csv
 ##### You are ready to proceed with further analysis                                                 #####
 ##########################################################################################################
 
-##### All code written by Emily Ann McClure. No AI was used at any stage in writing or editing this code. #####
+##### All code written by Emily Ann McClure github.com/mcclur51e   #####
+##### No AI was used at any stage in writing or editing this code. #####
